@@ -1,0 +1,34 @@
+{
+  "name": "svaramind-local-be",
+  "version": "1.0.0",
+  "description": "Svaramind Local - Standalone Backend API (Postgres direct, no Svarabase)",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "nodemon src/index.js",
+    "start": "node src/index.js",
+    "migrate": "knex migrate:latest --knexfile src/db/knexfile.js",
+    "migrate:rollback": "knex migrate:rollback --knexfile src/db/knexfile.js",
+    "seed:admin": "node src/scripts/createAdmin.js"
+  },
+  "type": "commonjs",
+  "devDependencies": {
+    "nodemon": "^3.1.11"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.600.0",
+    "axios": "^1.16.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "form-data": "^4.0.5",
+    "jsonwebtoken": "^9.0.2",
+    "knex": "^3.1.0",
+    "mammoth": "^1.12.0",
+    "marked": "^12.0.2",
+    "multer": "^2.1.1",
+    "pdf-parse": "^1.1.1",
+    "pg": "^8.12.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  }
+}
