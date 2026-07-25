@@ -39,12 +39,13 @@
         <div class="about-license">
           <div class="about-license-row">
             <i class="bi bi-file-earmark-text"></i>
-            <span>Licensed under the <strong>GNU General Public License v3 (GPLv3)</strong> &copy; 2026 IGB Yogiswara Gheartha</span>
+            <span>Licensed under the <strong>GNU Affero General Public License v3 (AGPLv3)</strong> &copy; 2026 IGB Yogiswara Gheartha</span>
           </div>
           <p class="about-license-note">
-            GPLv3 is a copyleft license: you are free to use, study, modify, and redistribute this
-            software, but any distributed modified version must also be open source under GPLv3,
-            with its source code made available. There is no warranty of any kind.
+            AGPLv3 is a network-copyleft license: you are free to use, study, modify, and
+            redistribute this software, but any distributed modified version, including one run
+            as a network service, must also be open source under AGPLv3, with its source code
+            made available. There is no warranty of any kind.
           </p>
         </div>
       </div>

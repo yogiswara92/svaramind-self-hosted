@@ -247,10 +247,10 @@ svaramind-local/
 
 ## License
 
-GNU General Public License v3.0 (GPLv3), see [LICENSE](LICENSE).
+GNU Affero General Public License v3.0 (AGPLv3), see [LICENSE](LICENSE).
 
-GPLv3 is a copyleft license. In practice that means:
+AGPLv3 is a network-copyleft license. In practice that means:
 - You are free to use, study, modify, and redistribute this software.
-- If you distribute a modified version, it must also be licensed under GPLv3, and you must make the source code available to whoever you give the software to.
-- If you run a modified version as a network service, GPLv3 itself does not require you to publish the source (that is what AGPLv3 is for), but you must still keep any GPLv3-covered code you redistribute under the same license.
+- If you distribute a modified version, it must also be licensed under AGPLv3, and you must make the source code available to whoever you give the software to.
+- If you run a modified version as a network service, meaning other people interact with it over a network, you must also make the complete corresponding source code available to those users. This is the clause plain GPLv3 does not have, and it exists specifically to stop someone taking this code, hosting a modified version as a competing service, and never contributing anything back.
 - There is no warranty of any kind, as stated in the license text.
