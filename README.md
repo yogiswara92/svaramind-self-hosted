@@ -205,6 +205,14 @@ then add it in Settings, or as the org-wide default in the Admin console.
   for `<img>` tags), not a public static mount.
 - **Passwords**: bcrypt, cost factor 10. Sessions are stateless JWTs (7-day
   default expiry, configurable via `JWT_EXPIRES_IN`).
+- **CORS is an explicit allowlist, not a wildcard**: only `http://localhost:57424`
+  (the default frontend port), `http://localhost:5173` (Vite's own default,
+  kept as a fallback), and anything you add to `CORS_ORIGIN` are accepted.
+  Any other origin is rejected outright, which is what allows the API to run
+  with `credentials: true` safely (browsers refuse that combined with a
+  wildcard origin). If you change `FRONTEND_PORT`, add the matching origin to
+  `CORS_ORIGIN` in `backend/.env` or the frontend will be blocked. See
+  [`backend/src/index.js`](backend/src/index.js).
 
 ## What's intentionally different from the hosted version
 
