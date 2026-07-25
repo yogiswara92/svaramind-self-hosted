@@ -45,7 +45,7 @@ if you don't want it to.
 ```mermaid
 flowchart LR
     subgraph Client
-        FE["Svelte SPA<br/>frontend/ :5175"]
+        FE["Svelte SPA<br/>frontend/ :57424"]
     end
     subgraph Server
         BE["Express API<br/>backend/ :3002"]
@@ -71,7 +71,7 @@ Nothing here calls out to `*.yesvara.com` or Google, except:
 
 | Component | Tech | Port |
 |---|---|---|
-| `frontend/` | Svelte 4 + Vite + TipTap | 5175 |
+| `frontend/` | Svelte 4 + Vite + TipTap | 57424 (configurable via `FRONTEND_PORT`) |
 | `backend/` | Node.js + Express 5 + Knex | 3002 |
 | Postgres | 16 (Alpine) | 5432 |
 | MinIO (optional, local S3-compatible testing) | S3-compatible object storage | 9000 / 9001 |
@@ -98,7 +98,7 @@ npm run dev &          # http://localhost:3002
 cd ../frontend
 cp .env.example .env
 npm install
-npm run dev             # http://localhost:5175
+npm run dev             # http://localhost:57424 (set FRONTEND_PORT in .env to change it)
 ```
 
 Generate the required secrets:
@@ -109,7 +109,7 @@ openssl rand -base64 64   # MCP_OAUTH_JWT_SECRET
 openssl rand -base64 32   # NOTES_ENCRYPTION_KEY
 ```
 
-Open http://localhost:5175 and sign up. The first account created
+Open http://localhost:57424 and sign up. The first account created
 automatically becomes an admin. From the user menu, an "Admin" link takes
 you to the console: storage, users, and default AI models.
 
@@ -133,13 +133,14 @@ All backend config lives in `backend/.env` (see `backend/.env.example` for the f
 | `SVARAMIND_INTERNAL_KEY` | no | Shared secret for trusted internal service-to-service MCP calls |
 | `OPENROUTER_API_KEY` | no | Optional org-wide fallback LLM key |
 | `GOOGLE_SEARCH_API_KEY` / `GOOGLE_SEARCH_CX` | no | Only needed for the AI web-search feature |
-| `CORS_ORIGIN` | no | Extra allowed origins beyond `localhost:5175`/`:5173` |
+| `CORS_ORIGIN` | no | Extra allowed origins beyond `localhost:57424`/`:5173` |
 
 Frontend config (`frontend/.env`):
 
 | Variable | Default |
 |---|---|
 | `VITE_API_URL` | `http://localhost:3002/api` |
+| `FRONTEND_PORT` | `57424` |
 
 ### Storage: local disk or S3-compatible
 

@@ -17,8 +17,8 @@ const PORT = process.env.PORT || 3002;
 // closed-loop deployment, so allowed origins come only from local defaults
 // and CORS_ORIGIN in .env.
 const allowedOrigins = [
-    'http://localhost:5175',
-    'http://localhost:5173',
+    'http://localhost:57424', // default frontend dev/preview port (FRONTEND_PORT)
+    'http://localhost:5173',  // Vite's own built-in default, kept as a fallback
     ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(o => o.trim()) : [])
 ].filter(Boolean);
 
