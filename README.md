@@ -2,9 +2,9 @@
 
 <img src="frontend/public/SvaraMind%20Logo.png" alt="Svaramind" height="72" />
 
-# Svaramind Local
+# Self-hosted Second Brain
 
-**A standalone, closed-loop deployment of Svaramind: your own notes app, your own database, your own rules.**
+**Svaramind, fully self-hosted: your own notes app, your own database, your own rules.**
 
 No DBaaS. No hosted auth provider. No cloud dependency in the critical path.
 Just Postgres, Express, and Svelte, running wherever you want.
@@ -17,17 +17,17 @@ Just Postgres, Express, and Svelte, running wherever you want.
 
 ## Why this exists
 
-The original Svaramind is a Svelte + Express notes app that depended on
-**Svarabase**, a self-hosted Supabase-style DBaaS, for auth, database access,
-and file storage. That's a fine setup for a multi-tenant SaaS, but it's the
-wrong shape for a team that needs to run the entire thing air-gapped, or
-close to it, with sensitive data never leaving infrastructure they control.
+Svaramind is an AI-native notes app: rich-text editing, a knowledge graph,
+semantic search, voice capture, and a chat assistant that reads and writes
+your notes. The hosted version is built for a multi-tenant SaaS, backed by a
+DBaaS layer for auth, database access, and file storage.
 
-Svaramind Local is that rewrite: the DBaaS layer is gone entirely. The
-backend talks straight to Postgres. Auth is bcrypt + JWT, owned end to end.
-Storage is a pluggable adapter (local disk or MinIO). Every AI feature keeps
-working, including a first-class local LLM option via Ollama - no external
-API call required if you don't want one.
+This is that same app, repackaged to run entirely on infrastructure you
+control. The DBaaS layer is gone. The backend talks straight to Postgres.
+Auth is bcrypt + JWT, owned end to end. Storage is a pluggable adapter with
+five backends to choose from. Every AI feature keeps working, including a
+first-class local LLM option via Ollama, so nothing has to leave your network
+if you don't want it to.
 
 ## Features
 
@@ -35,8 +35,9 @@ API call required if you don't want one.
 - **AI-native**: summarization, entity/action-item extraction, semantic search and RAG over your own notes, presentation/diagram/Instagram-post generation, an agentic chat assistant with tool calling
 - **MCP server built in**: connect Claude.ai, ChatGPT, or any MCP client to your notes via OAuth 2.1 + PKCE, or via a trusted internal service key
 - **Own your auth**: email/password with bcrypt + JWT, first signup becomes admin automatically, no third-party identity provider
-- **Swappable storage**: local filesystem by default, or MinIO (S3-compatible), switchable at runtime from an in-app Admin page, no restart or redeploy needed
-- **Five LLM providers, one of them fully local**: OpenRouter, Apilogy (Telkom AI), OpenAI, Ollama, or any custom OpenAI-compatible endpoint, configured per user
+- **Storage, your choice**: local filesystem, MinIO, AWS S3, Cloudflare R2, or any other S3-compatible store, switchable at runtime from the Admin console, no restart or redeploy needed
+- **Five LLM providers, one of them fully local**: OpenRouter, Apilogy (Telkom AI), OpenAI, Ollama, or any custom OpenAI-compatible endpoint
+- **Admin console**: manage every user (create, disable, delete), and optionally lock the whole organization onto a single default model for chat, embeddings, and transcription, with per-category locks so users keep bring-your-own-key flexibility wherever you don't need to enforce a default
 - **Application-layer authorization**: every document/folder/workspace access is checked in code (see [`authz.js`](backend/src/services/authz.js)), not delegated to a database feature that silently doesn't apply
 
 ## Architecture
@@ -50,7 +51,7 @@ flowchart LR
         BE["Express API<br/>backend/ :3002"]
         PG[("PostgreSQL<br/>:5432")]
         FS[["Local disk<br/>backend/storage/"]]
-        MinIO[("MinIO (optional)<br/>:9000")]
+        S3[("S3-compatible storage (optional)<br/>MinIO / AWS S3 / R2 / custom")]
     end
     LLM["LLM provider<br/>OpenRouter / Apilogy / OpenAI / Ollama / custom"]
     MCP["MCP clients<br/>Claude.ai, ChatGPT, etc."]
@@ -58,13 +59,14 @@ flowchart LR
     FE -- REST + JWT --> BE
     BE -- Knex / pg --> PG
     BE -. storage adapter .-> FS
-    BE -. storage adapter .-> MinIO
-    BE -- per-user config --> LLM
+    BE -. storage adapter .-> S3
+    BE -- per-user or admin-locked config --> LLM
     MCP -- OAuth 2.1 / PKCE or internal key --> BE
 ```
 
-Nothing here calls out to `*.yesvara.com`, `*.supabase.co`, or Google, except:
-- whichever LLM provider you configure per-user (and if that's Ollama, not even that)
+Nothing here calls out to `*.yesvara.com` or Google, except:
+- whichever LLM provider you configure (and if that's Ollama, not even that)
+- whichever storage provider you configure, if it's a remote S3-compatible store
 - Google Custom Search, only if you enable the AI web-search feature
 
 | Component | Tech | Port |
@@ -72,7 +74,7 @@ Nothing here calls out to `*.yesvara.com`, `*.supabase.co`, or Google, except:
 | `frontend/` | Svelte 4 + Vite + TipTap | 5175 |
 | `backend/` | Node.js + Express 5 + Knex | 3002 |
 | Postgres | 16 (Alpine) | 5432 |
-| MinIO (optional) | S3-compatible object storage | 9000 / 9001 |
+| MinIO (optional, local S3-compatible testing) | S3-compatible object storage | 9000 / 9001 |
 
 ## Quick Start
 
@@ -109,7 +111,7 @@ openssl rand -base64 32   # NOTES_ENCRYPTION_KEY
 
 Open http://localhost:5175 and sign up. The first account created
 automatically becomes an admin. From the user menu, an "Admin" link takes
-you to storage configuration.
+you to the console: storage, users, and default AI models.
 
 To create/promote an admin from the CLI instead:
 
@@ -139,10 +141,21 @@ Frontend config (`frontend/.env`):
 |---|---|
 | `VITE_API_URL` | `http://localhost:3002/api` |
 
-### Storage: local disk vs. MinIO
+### Storage: local disk or S3-compatible
 
 Default is local disk (`backend/storage/`), served through an authenticated
-proxy route, no extra service needed. To use MinIO instead:
+proxy route, no extra service needed. Everything else is configured entirely
+from the Admin console (Admin > Storage), no restart or redeploy needed:
+
+| Provider | Notes |
+|---|---|
+| Local Filesystem | Default. Files stay on this server's disk. |
+| MinIO | Self-hosted, S3-compatible. Good fit for staying fully on-prem. |
+| AWS S3 | Real AWS S3, any region. |
+| Cloudflare R2 | S3-compatible, no egress fees. |
+| Custom | Any other S3-compatible store (Backblaze B2, SeaweedFS, Garage, etc.). |
+
+To try MinIO locally:
 
 ```bash
 docker compose --profile minio up -d minio
@@ -150,11 +163,13 @@ docker compose --profile minio up -d minio
 
 Then in the app: Admin > Storage > MinIO, endpoint `http://localhost:9000`,
 credentials `minioadmin` / `minioadmin` (change these in `docker-compose.yml`
-for anything beyond local testing). Switching takes effect immediately.
+for anything beyond local testing).
 
 ### LLM providers
 
-Configured per user in Settings > AI & LLM > LLM Models:
+Configured per user in Settings > AI & LLM, or forced organization-wide from
+the Admin console (Admin > Default AI Models), with independent lock
+switches for chat, embeddings, and transcription:
 
 | Provider | Requires internet | API key |
 |---|---|---|
@@ -166,13 +181,13 @@ Configured per user in Settings > AI & LLM > LLM Models:
 
 For Ollama: install it (https://ollama.com), pull a chat model
 (`ollama pull llama3.1`) and an embedding model (`ollama pull nomic-embed-text`),
-then add it in Settings. Base URL defaults to `http://localhost:11434/v1`.
+then add it in Settings, or as the org-wide default in the Admin console.
 
 ## Security
 
 - **Authorization is enforced in application code**, not via Postgres Row
-  Level Security. The original hosted schema's RLS policies depended on
-  Svarabase injecting `request.jwt.claims` per request, a mechanism that
+  Level Security. The original hosted schema's RLS policies depended on the
+  DBaaS layer injecting `request.jwt.claims` per request, a mechanism that
   doesn't exist here, so every document/folder/workspace/collaborator
   operation is explicitly checked in
   [`backend/src/services/authz.js`](backend/src/services/authz.js) and used
@@ -197,9 +212,8 @@ then add it in Settings. Base URL defaults to `http://localhost:11434/v1`.
 - No "forgot password via email" flow (no SMTP configured). Logged-in users
   change their own password from Settings; admins can reset via
   `createAdmin.js` or directly in Postgres.
-- Fresh database only: this does not migrate existing data from a
-  Svarabase- or Supabase-hosted instance. That would be a separate,
-  explicit export/import exercise.
+- Fresh database only: this does not migrate existing data from a hosted
+  instance. That would be a separate, explicit export/import exercise.
 
 ## Project structure
 
