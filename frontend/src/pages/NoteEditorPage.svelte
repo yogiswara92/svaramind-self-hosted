@@ -937,8 +937,8 @@
             <span class="word-count hide-mobile">{wordCount} words</span>
           {/if}
 
-          <!-- WikiLink picker trigger (hidden on mobile) -->
-          <div class="wikilink-wrapper hide-mobile">
+          <!-- WikiLink picker trigger -->
+          <div class="wikilink-wrapper">
             <button class="editor-action-btn"
               on:click={() => { showWikiLinkPicker = !showWikiLinkPicker; isAutoTriggeredWikiPicker = false; wikiLinkQuery = ''; searchWikiLinks(''); }}
               title="Insert [[wikilink]]">
@@ -1000,13 +1000,13 @@
             </div>
           {/if}
 
-          <!-- Version history (hidden on mobile) -->
-          <button class="editor-action-btn hide-mobile {showVersionPanel ? 'active' : ''}" on:click={() => { showVersionPanel = !showVersionPanel; showAIPanel = false; }} title="Version history">
+          <!-- Version history -->
+          <button class="editor-action-btn {showVersionPanel ? 'active' : ''}" on:click={() => { showVersionPanel = !showVersionPanel; showAIPanel = false; }} title="Version history">
             <i class="bi bi-clock-history"></i>
           </button>
 
-          <!-- Export dropdown (hidden on mobile) -->
-          <div class="export-wrap hide-mobile">
+          <!-- Export dropdown -->
+          <div class="export-wrap">
             <button class="editor-action-btn" on:click={() => showExportMenu = !showExportMenu} title="Export">
               <i class="bi bi-download"></i>
             </button>
@@ -1030,7 +1030,7 @@
 
           <!-- Publish button -->
           {#if doc.published_at}
-            <button class="publish-btn published hide-mobile" on:click={unpublishDoc} disabled={publishing} title="Unpublish">
+            <button class="publish-btn published" on:click={unpublishDoc} disabled={publishing} title="Unpublish">
               {#if publishing}
                 <span class="spinner-sm" style="width:11px;height:11px;border-width:2px"></span>
               {:else}
@@ -1039,7 +1039,7 @@
               <span class="publish-btn-label">Published</span>
             </button>
           {:else}
-            <button class="publish-btn hide-mobile" on:click={openPublishModal} disabled={publishing} title="Publish to blog">
+            <button class="publish-btn" on:click={openPublishModal} disabled={publishing} title="Publish to blog">
               <i class="bi bi-send"></i>
               <span class="publish-btn-label">Publish</span>
             </button>
@@ -1749,11 +1749,17 @@
     .title-input { font-size: 1.2rem; }
     .doc-title { font-size: 1.2rem; }
 
-    /* Topbar: compact, breadcrumb truncates */
+    /* Topbar: compact, breadcrumb truncates. Wraps instead of clipping/hiding
+       buttons outright - if every action icon doesn't fit next to the
+       breadcrumb on one line, the action row drops to its own line below
+       rather than losing anything. */
     .editor-topbar {
-      padding: 0 8px;
-      height: 44px;
+      padding: 6px 8px;
+      height: auto;
+      min-height: 44px;
       gap: 4px;
+      flex-wrap: wrap;
+      row-gap: 4px;
     }
 
     .editor-breadcrumb {
@@ -1770,10 +1776,11 @@
       color: var(--text-primary);
     }
 
-    /* Actions: only keep save status + share + AI */
-    .editor-actions { gap: 4px; }
+    /* Actions: icon-only (labels hidden, buttons themselves stay reachable) */
+    .editor-actions { gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
     .save-status { font-size: 11px; }
     .save-btn-label { display: none; }
+    .publish-btn-label { display: none; }
     .word-count { display: none; }
     .hide-mobile { display: none !important; }
 
