@@ -80,6 +80,16 @@
     fontAnchor = colorAnchor = insertAnchor = null;
   }
 
+  // Portals anchor to the trigger button's left edge by default, which
+  // overflows off-screen once the button is close enough to the right edge
+  // of the viewport (e.g. the More button in a narrower editor column).
+  // Clamp so the dropdown's right edge never goes past the viewport.
+  function clampLeft(anchor: DOMRect | null, width: number): number {
+    if (!anchor) return 0;
+    const margin = 8;
+    return Math.max(margin, Math.min(anchor.left, window.innerWidth - width - margin));
+  }
+
   function cmd(action: string, opts?: any) {
     if (!editor) return;
     const ch = editor.chain().focus();
@@ -355,7 +365,7 @@
 
 {#if fontAnchor}
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="portal" style="left:{fontAnchor.left}px;top:{fontAnchor.bottom+4}px;min-width:190px"
+  <div class="portal" style="left:{clampLeft(fontAnchor, 190)}px;top:{fontAnchor.bottom+4}px;min-width:190px"
     on:click|stopPropagation on:mousedown|preventDefault>
     {#each FONTS as f}
       <button class="p-item" style="font-family:{f.value}" on:click={() => { cmd('font', f.value); closeAll(); }}>
@@ -367,7 +377,7 @@
 
 {#if colorAnchor}
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="portal" style="left:{colorAnchor.left}px;top:{colorAnchor.bottom+4}px;min-width:200px"
+  <div class="portal" style="left:{clampLeft(colorAnchor, 200)}px;top:{colorAnchor.bottom+4}px;min-width:200px"
     on:click|stopPropagation on:mousedown|preventDefault>
     <div class="p-section-label">Text color</div>
     <div class="p-swatch-row">
@@ -392,7 +402,7 @@
 
 {#if insertAnchor}
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="portal" style="left:{insertAnchor.left}px;top:{insertAnchor.bottom+4}px;min-width:200px"
+  <div class="portal" style="left:{clampLeft(insertAnchor, 200)}px;top:{insertAnchor.bottom+4}px;min-width:200px"
     on:click|stopPropagation on:mousedown|preventDefault>
     <button class="p-item" on:click={insertImage}>
       <i class="bi bi-image"></i> Image
@@ -418,7 +428,7 @@
 
 {#if moreAnchor}
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="portal" style="left:{moreAnchor.left}px;top:{moreAnchor.bottom+4}px;min-width:190px"
+  <div class="portal" style="left:{clampLeft(moreAnchor, 190)}px;top:{moreAnchor.bottom+4}px;min-width:190px"
     on:click|stopPropagation on:mousedown|preventDefault>
     <div class="p-section-label">Align</div>
     <div class="p-btn-row">

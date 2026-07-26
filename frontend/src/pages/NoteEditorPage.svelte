@@ -26,6 +26,14 @@
   let showAIPanel = false;
   let showVersionPanel = false;
   let showShareModal = false;
+
+  // Persisted locally (not synced server-side, it's a low-stakes display
+  // preference, not worth a settings-table round trip) so it survives reloads.
+  let toolbarCollapsed = typeof localStorage !== 'undefined' && localStorage.getItem('svaramind_toolbar_collapsed') === 'true';
+  function toggleToolbar() {
+    toolbarCollapsed = !toolbarCollapsed;
+    localStorage.setItem('svaramind_toolbar_collapsed', String(toolbarCollapsed));
+  }
   let showExportMenu = false;
   let showPublishModal = false;
   let publishing = false;
@@ -1043,23 +1051,28 @@
           <button class="editor-action-btn {showAIPanel ? 'active' : ''}" on:click={() => { showAIPanel = !showAIPanel; showVersionPanel = false; }} title="AI Assistant">
             <i class="bi bi-stars"></i>
           </button>
+          <button class="editor-action-btn" on:click={toggleToolbar} title={toolbarCollapsed ? 'Show toolbar' : 'Hide toolbar'}>
+            <i class="bi {toolbarCollapsed ? 'bi-chevron-bar-down' : 'bi-chevron-bar-up'}"></i>
+          </button>
         </div>
       </div>
 
       <!-- ── Toolbar: outside scroll container so it's always visible ──
            VoiceRecorder lives inside EditorToolbar now so it wraps as part
            of the same flow instead of floating next to it. -->
-      <EditorToolbar
-        editor={editorInstance}
-        {savingDoc}
-        lineHeight={$settings.editor_line_height}
-        fontSize={$settings.editor_font_size}
-        on:toggleAI={() => { showAIPanel = !showAIPanel; showVersionPanel = false; }}
-        on:lineHeightChange={(e) => { settings.update(s => ({ ...s, editor_line_height: e.detail })); }}
-        on:fontSizeChange={(e) => { settings.update(s => ({ ...s, editor_font_size: e.detail })); }}
-        on:recordingStart={handleRecordingStart}
-        on:transcribed={handleTranscribed}
-      />
+      {#if !toolbarCollapsed}
+        <EditorToolbar
+          editor={editorInstance}
+          {savingDoc}
+          lineHeight={$settings.editor_line_height}
+          fontSize={$settings.editor_font_size}
+          on:toggleAI={() => { showAIPanel = !showAIPanel; showVersionPanel = false; }}
+          on:lineHeightChange={(e) => { settings.update(s => ({ ...s, editor_line_height: e.detail })); }}
+          on:fontSizeChange={(e) => { settings.update(s => ({ ...s, editor_font_size: e.detail })); }}
+          on:recordingStart={handleRecordingStart}
+          on:transcribed={handleTranscribed}
+        />
+      {/if}
 
       <!-- Editor layout -->
       <div class="editor-layout">
