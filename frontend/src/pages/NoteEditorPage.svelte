@@ -35,6 +35,29 @@
     localStorage.setItem('svaramind_toolbar_collapsed', String(toolbarCollapsed));
   }
   let showExportMenu = false;
+  let headerMoreAnchor: DOMRect | null = null; // mobile-only grouped-actions popup
+  let wikiLinkAnchor: DOMRect | null = null;    // anchor for the manually-triggered wikilink portal
+
+  function openHeaderMore(e: MouseEvent) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    headerMoreAnchor = headerMoreAnchor ? null : r;
+  }
+
+  function openWikiLinkPicker(e: MouseEvent) {
+    wikiLinkAnchor = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    showWikiLinkPicker = true;
+    isAutoTriggeredWikiPicker = false;
+    wikiLinkQuery = '';
+    searchWikiLinks('');
+  }
+
+  // Same viewport-clamping idea as EditorToolbar's dropdowns - keeps popups
+  // anchored near the button that opened them without running off-screen.
+  function clampHeaderLeft(anchor: DOMRect | null, width: number): number {
+    if (!anchor) return 0;
+    const margin = 8;
+    return Math.max(margin, Math.min(anchor.left, window.innerWidth - width - margin));
+  }
   let showPublishModal = false;
   let publishing = false;
   let publishSlug = '';
@@ -458,6 +481,7 @@
     isAutoTriggeredWikiPicker = false;
     wikiLinkQuery = '';
     wikiLinkResults = [];
+    wikiLinkAnchor = null;
     editorRef?.focus();
   }
 
@@ -876,7 +900,7 @@
   <title>Svaramind</title>
 </svelte:head>
 
-<svelte:window on:mousemove={onAIMouseMove} on:mouseup={stopAIResize} />
+<svelte:window on:mousemove={onAIMouseMove} on:mouseup={stopAIResize} on:click={() => { headerMoreAnchor = null; }} />
 
 <NotesLayout currentPage="editor">
   <NoteTabBar />
@@ -937,39 +961,11 @@
             <span class="word-count hide-mobile">{wordCount} words</span>
           {/if}
 
-          <!-- WikiLink picker trigger -->
-          <div class="wikilink-wrapper">
-            <button class="editor-action-btn"
-              on:click={() => { showWikiLinkPicker = !showWikiLinkPicker; isAutoTriggeredWikiPicker = false; wikiLinkQuery = ''; searchWikiLinks(''); }}
-              title="Insert [[wikilink]]">
-              <i class="bi bi-link-45deg"></i>
-              <span style="font-size:10px;margin-left:1px">[[</span>
-            </button>
-            {#if showWikiLinkPicker && !isAutoTriggeredWikiPicker}
-              <div class="wikilink-dropdown">
-                <input class="notes-input" bind:value={wikiLinkQuery}
-                  on:input={() => searchWikiLinks(wikiLinkQuery)}
-                  placeholder="Search notes to link..." autofocus style="height:32px;font-size:12px" />
-                {#if wikiLinkResults.length > 0}
-                  <div class="wikilink-results">
-                    {#each wikiLinkResults as result}
-                      <button class="wikilink-result" on:click={() => insertWikiLink(result)} title={result.title}>
-                        <i class="bi {result.icon || 'bi-file-text'}"></i>
-                        <div class="wikilink-result-info">
-                          <span class="wikilink-result-title">{result.title || 'Untitled'}</span>
-                          {#if result.workspace_name}
-                            <span class="wikilink-result-workspace">{result.workspace_name}</span>
-                          {/if}
-                        </div>
-                      </button>
-                    {/each}
-                  </div>
-                {:else if wikiLinkQuery}
-                  <p class="wikilink-empty">No notes found</p>
-                {/if}
-              </div>
-            {/if}
-          </div>
+          <!-- WikiLink picker trigger (desktop only - grouped into "More" on mobile) -->
+          <button class="editor-action-btn hide-mobile" on:click={openWikiLinkPicker} title="Insert [[wikilink]]">
+            <i class="bi bi-link-45deg"></i>
+            <span style="font-size:10px;margin-left:1px">[[</span>
+          </button>
 
           <!-- Auto-triggered floating wiki link picker (when user types [[) -->
           {#if showWikiLinkPicker && isAutoTriggeredWikiPicker && wikiLinkQuery !== '' && (wikiLinkPickerPos.left > 0 || wikiLinkPickerPos.top > 0)}
@@ -1000,13 +996,42 @@
             </div>
           {/if}
 
+          <!-- Manually-triggered wiki link picker (desktop button or the mobile
+               "More" menu) - position:fixed so it renders correctly regardless
+               of which trigger opened it, including from inside the More popup. -->
+          {#if showWikiLinkPicker && !isAutoTriggeredWikiPicker && wikiLinkAnchor}
+            <div class="wikilink-dropdown-portal" style="left:{clampHeaderLeft(wikiLinkAnchor, 260)}px;top:{wikiLinkAnchor.bottom+6}px"
+              on:click|stopPropagation>
+              <input class="notes-input" bind:value={wikiLinkQuery}
+                on:input={() => searchWikiLinks(wikiLinkQuery)}
+                placeholder="Search notes to link..." autofocus style="height:32px;font-size:12px" />
+              {#if wikiLinkResults.length > 0}
+                <div class="wikilink-results">
+                  {#each wikiLinkResults as result}
+                    <button class="wikilink-result" on:click={() => insertWikiLink(result)} title={result.title}>
+                      <i class="bi {result.icon || 'bi-file-text'}"></i>
+                      <div class="wikilink-result-info">
+                        <span class="wikilink-result-title">{result.title || 'Untitled'}</span>
+                        {#if result.workspace_name}
+                          <span class="wikilink-result-workspace">{result.workspace_name}</span>
+                        {/if}
+                      </div>
+                    </button>
+                  {/each}
+                </div>
+              {:else if wikiLinkQuery}
+                <p class="wikilink-empty">No notes found</p>
+              {/if}
+            </div>
+          {/if}
+
           <!-- Version history -->
-          <button class="editor-action-btn {showVersionPanel ? 'active' : ''}" on:click={() => { showVersionPanel = !showVersionPanel; showAIPanel = false; }} title="Version history">
+          <button class="editor-action-btn hide-mobile {showVersionPanel ? 'active' : ''}" on:click={() => { showVersionPanel = !showVersionPanel; showAIPanel = false; }} title="Version history">
             <i class="bi bi-clock-history"></i>
           </button>
 
           <!-- Export dropdown -->
-          <div class="export-wrap">
+          <div class="export-wrap hide-mobile">
             <button class="editor-action-btn" on:click={() => showExportMenu = !showExportMenu} title="Export">
               <i class="bi bi-download"></i>
             </button>
@@ -1030,7 +1055,7 @@
 
           <!-- Publish button -->
           {#if doc.published_at}
-            <button class="publish-btn published" on:click={unpublishDoc} disabled={publishing} title="Unpublish">
+            <button class="publish-btn published hide-mobile" on:click={unpublishDoc} disabled={publishing} title="Unpublish">
               {#if publishing}
                 <span class="spinner-sm" style="width:11px;height:11px;border-width:2px"></span>
               {:else}
@@ -1039,10 +1064,53 @@
               <span class="publish-btn-label">Published</span>
             </button>
           {:else}
-            <button class="publish-btn" on:click={openPublishModal} disabled={publishing} title="Publish to blog">
+            <button class="publish-btn hide-mobile" on:click={openPublishModal} disabled={publishing} title="Publish to blog">
               <i class="bi bi-send"></i>
               <span class="publish-btn-label">Publish</span>
             </button>
+          {/if}
+
+          <!-- Mobile-only: everything above that's hidden individually below
+               768px (wikilink, version history, export, publish) grouped
+               into one popup instead of being inaccessible. -->
+          <button class="editor-action-btn show-mobile-only" on:click|stopPropagation={openHeaderMore} title="More actions">
+            <i class="bi bi-three-dots"></i>
+          </button>
+
+          {#if headerMoreAnchor}
+            <!-- svelte-ignore a11y-no-static-element-interactions -->
+            <div class="header-more-portal" style="left:{clampHeaderLeft(headerMoreAnchor, 200)}px;top:{headerMoreAnchor.bottom+6}px"
+              on:click|stopPropagation on:mousedown|preventDefault>
+              <button class="header-more-item" on:click={(e) => { headerMoreAnchor = null; openWikiLinkPicker(e); }}>
+                <i class="bi bi-link-45deg"></i> Insert wikilink
+              </button>
+              <button class="header-more-item" on:click={() => { headerMoreAnchor = null; showVersionPanel = !showVersionPanel; showAIPanel = false; }}>
+                <i class="bi bi-clock-history"></i> Version history
+              </button>
+              <div class="header-more-divider"></div>
+              <button class="header-more-item" on:click={() => { headerMoreAnchor = null; exportAsPDF(); }}>
+                <i class="bi bi-file-earmark-pdf"></i> Export as PDF
+              </button>
+              <button class="header-more-item" on:click={() => { headerMoreAnchor = null; exportAsWord(); }}>
+                <i class="bi bi-file-earmark-word"></i> Export as Word
+              </button>
+              <button class="header-more-item" on:click={() => { headerMoreAnchor = null; exportAsMarkdown(); }}>
+                <i class="bi bi-markdown"></i> Export as Markdown
+              </button>
+              <button class="header-more-item" on:click={() => { headerMoreAnchor = null; exportAsText(); }}>
+                <i class="bi bi-file-earmark-text"></i> Export as Plain Text
+              </button>
+              <div class="header-more-divider"></div>
+              {#if doc.published_at}
+                <button class="header-more-item" on:click={() => { headerMoreAnchor = null; unpublishDoc(); }} disabled={publishing}>
+                  <i class="bi bi-globe2"></i> Unpublish
+                </button>
+              {:else}
+                <button class="header-more-item" on:click={() => { headerMoreAnchor = null; openPublishModal(); }} disabled={publishing}>
+                  <i class="bi bi-send"></i> Publish to blog
+                </button>
+              {/if}
+            </div>
           {/if}
 
           <button class="editor-action-btn" on:click={() => showShareModal = true} title="Share">
@@ -1370,21 +1438,45 @@
   }
   .export-item:hover { background: var(--bg-hover); }
 
-  .wikilink-wrapper { position: relative; }
-
-  .wikilink-dropdown {
-    position: absolute;
-    top: calc(100% + 6px);
-    right: 0;
+  .wikilink-dropdown-portal {
+    position: fixed;
     width: 260px;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-sm);
     box-shadow: var(--shadow-md);
-    z-index: 100;
+    z-index: 9000;
     padding: 8px;
     animation: fadeIn 0.15s ease;
   }
+
+  /* ── Mobile "More actions" popup ─────────────────────────────────────── */
+  .show-mobile-only { display: none !important; }
+
+  .header-more-portal {
+    position: fixed;
+    min-width: 200px;
+    max-height: 70vh;
+    overflow-y: auto;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.14);
+    z-index: 9000;
+    padding: 5px;
+    animation: fadeIn 0.15s ease;
+  }
+  .header-more-item {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; padding: 9px 10px;
+    border: none; border-radius: 5px; background: none;
+    cursor: pointer; font-size: 13px;
+    color: var(--text-primary); text-align: left;
+    transition: background 0.1s;
+  }
+  .header-more-item:hover { background: var(--bg-hover); }
+  .header-more-item:disabled { opacity: 0.5; cursor: default; }
+  .header-more-divider { border-top: 1px solid var(--border-color); margin: 4px 0; }
 
   .wikilink-results { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
 
@@ -1776,13 +1868,16 @@
       color: var(--text-primary);
     }
 
-    /* Actions: icon-only (labels hidden, buttons themselves stay reachable) */
+    /* Actions: wikilink/version-history/export/publish grouped into the
+       "More actions" popup instead of shown individually - hide-mobile hides
+       them, show-mobile-only reveals the single grouped trigger in their place. */
     .editor-actions { gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
     .save-status { font-size: 11px; }
     .save-btn-label { display: none; }
     .publish-btn-label { display: none; }
     .word-count { display: none; }
     .hide-mobile { display: none !important; }
+    .show-mobile-only { display: inline-flex !important; }
 
     /* Toolbar: wrap */
     :global(.editor-toolbar) {
