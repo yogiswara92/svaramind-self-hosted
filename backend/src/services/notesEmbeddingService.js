@@ -247,13 +247,19 @@ async function semanticSearch(query, workspaceId, userId, limit = 10) {
 
   if (!chunks?.length) return [];
 
-  // Score each chunk
+  // Score each chunk.
+  // Threshold is intentionally low (0.3, not the 0.7+ a naive reading of
+  // "cosine similarity" might suggest) - measured directly against real
+  // note content: a single-word query against a chunk that is genuinely
+  // about that exact topic scored ~0.38-0.41 with OpenAI-family embedding
+  // models, while a clearly unrelated query scored ~0.19-0.22. 0.7 was
+  // filtering out true matches entirely, not just weak ones.
   const scored = chunks
     .map(c => ({
       ...c,
       score: cosineSimilarity(queryEmbedding, c.embedding)
     }))
-    .filter(c => c.score > 0.7)
+    .filter(c => c.score > 0.3)
     .sort((a, b) => b.score - a.score);
 
   // Deduplicate by document — keep best chunk per doc
@@ -347,10 +353,10 @@ async function getCrossNoteChunks(query, workspaceId, userId, excludeDocId, topK
 
   console.log(`[RAG] getCrossNoteChunks: scoring ${chunks.length} chunks from ${docIds.length} docs`);
 
-  // Step 3: score and rank
+  // Step 3: score and rank (see semanticSearch() above for why 0.3, not 0.65+)
   const scored = chunks
     .map(c => ({ ...c, score: cosineSimilarity(queryEmbedding, c.embedding) }))
-    .filter(c => c.score > 0.65)
+    .filter(c => c.score > 0.3)
     .sort((a, b) => b.score - a.score);
 
   // One best chunk per document
