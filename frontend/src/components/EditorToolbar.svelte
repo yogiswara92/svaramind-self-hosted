@@ -3,6 +3,7 @@
   import type { Editor } from '@tiptap/core';
   import { marked } from 'marked';
   import QuickVoiceInput from './QuickVoiceInput.svelte';
+  import VoiceRecorder from './VoiceRecorder.svelte';
   import { parsePPT, slidesToMarkdown } from '../lib/ppt-parser';
 
   export let editor: Editor | null = null;
@@ -24,6 +25,7 @@
   let fontAnchor:   DOMRect | null = null;
   let colorAnchor:  DOMRect | null = null;
   let insertAnchor: DOMRect | null = null;
+  let moreAnchor:   DOMRect | null = null;
   let showLinkInput = false;
   let linkUrl = '';
   let pptInput: HTMLInputElement;
@@ -48,26 +50,34 @@
   const HIGHLIGHTS = ['#fef08a','#bbf7d0','#bfdbfe','#ddd6fe','#fed7aa','#fecdd3'];
 
   function closeAll() {
-    fontAnchor = colorAnchor = insertAnchor = null;
+    fontAnchor = colorAnchor = insertAnchor = moreAnchor = null;
     showLinkInput = false;
   }
 
   function openFont(e: MouseEvent) {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     fontAnchor = fontAnchor ? null : r;
-    colorAnchor = insertAnchor = null;
+    colorAnchor = insertAnchor = moreAnchor = null;
   }
 
   function openColor(e: MouseEvent) {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     colorAnchor = colorAnchor ? null : r;
     fontAnchor = insertAnchor = null;
+    // moreAnchor is deliberately left alone - Color can be opened from
+    // inside the More menu as a nested dropdown, not just from the top level.
   }
 
   function openInsert(e: MouseEvent) {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     insertAnchor = insertAnchor ? null : r;
-    fontAnchor = colorAnchor = null;
+    fontAnchor = colorAnchor = moreAnchor = null;
+  }
+
+  function openMore(e: MouseEvent) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    moreAnchor = moreAnchor ? null : r;
+    fontAnchor = colorAnchor = insertAnchor = null;
   }
 
   function cmd(action: string, opts?: any) {
@@ -188,6 +198,10 @@
   $: canUndo   = editor?.can().undo()                  && !!st;
   $: canRedo   = editor?.can().redo()                  && !!st;
   $: currentColor = editor?.getAttributes('textStyle')?.color || '#000';
+  // Lights up the "More" button when something tucked inside it is active,
+  // so align/sub/superscript being on isn't invisible just because they're
+  // no longer always-visible toolbar buttons.
+  $: moreHasActive = isSub || isSup || isAlignC || isAlignR;
 </script>
 
 <svelte:window
@@ -251,21 +265,20 @@
     <button class="tb {isUnder?'on':''}"  on:click={() => cmd('underline')} title="Underline (⌘U)">   <i class="bi bi-type-underline"></i></button>
     <button class="tb {isStrike?'on':''}" on:click={() => cmd('strike')}    title="Strikethrough">    <i class="bi bi-type-strikethrough"></i></button>
     <button class="tb {isCode?'on':''}"   on:click={() => cmd('code')}      title="Inline code">      <i class="bi bi-code"></i></button>
-    <button class="tb tb-mobile-hide {isSub?'on':''}" on:click={() => cmd('sub')} title="Subscript">  <i class="bi bi-subscript"></i></button>
-    <button class="tb tb-mobile-hide {isSup?'on':''}" on:click={() => cmd('sup')} title="Superscript"><i class="bi bi-superscript"></i></button>
   </div>
 
   <div class="sep"></div>
 
-  <!-- Color -->
-  <div class="tb-group tb-mobile-hide">
-    <button class="tb color-btn" on:click|stopPropagation={openColor} title="Color / Highlight">
-      <span class="color-a" style="border-bottom:3px solid {currentColor}">A</span>
-      <i class="bi bi-chevron-down caret"></i>
+  <!-- More: align, color/highlight, sub/superscript - kept in one place
+       instead of taking up permanent toolbar width, since these are used
+       far less often than the groups around them. -->
+  <div class="tb-group">
+    <button class="tb {moreHasActive?'on':''}" on:click|stopPropagation={openMore} title="More formatting">
+      <i class="bi bi-three-dots"></i>
     </button>
   </div>
 
-  <div class="sep tb-mobile-hide"></div>
+  <div class="sep"></div>
 
   <!-- Lists & blocks -->
   <div class="tb-group">
@@ -277,16 +290,6 @@
   </div>
 
   <div class="sep"></div>
-
-  <!-- Alignment -->
-  <div class="tb-group tb-mobile-hide">
-    <button class="tb {isAlignL?'on':''}" on:click={() => cmd('alignLeft')}    title="Align left">    <i class="bi bi-text-left"></i></button>
-    <button class="tb {isAlignC?'on':''}" on:click={() => cmd('alignCenter')}  title="Align center">  <i class="bi bi-text-center"></i></button>
-    <button class="tb {isAlignR?'on':''}" on:click={() => cmd('alignRight')}   title="Align right">   <i class="bi bi-text-right"></i></button>
-    <button class="tb"                    on:click={() => cmd('alignJustify')}  title="Justify">       <i class="bi bi-justify"></i></button>
-  </div>
-
-  <div class="sep tb-mobile-hide"></div>
 
   <!-- Link -->
   <div class="tb-group">
@@ -334,6 +337,16 @@
     <button class="tb" on:click={zoomIn} disabled={fontSize >= MAX_FONT} title="Zoom in (⌘+)">
       <i class="bi bi-zoom-in"></i>
     </button>
+  </div>
+
+  <div class="sep"></div>
+
+  <!-- Voice recorder (long recordings, 5-min chunked) - kept in the same
+       wrapping flow as everything else above, instead of pinned outside it,
+       so it wraps onto a new line along with the rest instead of floating
+       alone next to a half-empty row. -->
+  <div class="tb-group">
+    <VoiceRecorder on:recordingStart on:transcribed />
   </div>
 
 </div>
@@ -403,6 +416,30 @@
   </div>
 {/if}
 
+{#if moreAnchor}
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div class="portal" style="left:{moreAnchor.left}px;top:{moreAnchor.bottom+4}px;min-width:190px"
+    on:click|stopPropagation on:mousedown|preventDefault>
+    <div class="p-section-label">Align</div>
+    <div class="p-btn-row">
+      <button class="tb {isAlignL?'on':''}" on:click={() => cmd('alignLeft')}    title="Align left">    <i class="bi bi-text-left"></i></button>
+      <button class="tb {isAlignC?'on':''}" on:click={() => cmd('alignCenter')}  title="Align center">  <i class="bi bi-text-center"></i></button>
+      <button class="tb {isAlignR?'on':''}" on:click={() => cmd('alignRight')}   title="Align right">   <i class="bi bi-text-right"></i></button>
+      <button class="tb"                    on:click={() => cmd('alignJustify')} title="Justify">       <i class="bi bi-justify"></i></button>
+    </div>
+    <div class="p-divider"></div>
+    <div class="p-section-label">Format</div>
+    <div class="p-btn-row">
+      <button class="tb color-btn" on:click|stopPropagation={openColor} title="Color / Highlight">
+        <span class="color-a" style="border-bottom:3px solid {currentColor}">A</span>
+        <i class="bi bi-chevron-down caret"></i>
+      </button>
+      <button class="tb {isSub?'on':''}" on:click={() => cmd('sub')} title="Subscript">   <i class="bi bi-subscript"></i></button>
+      <button class="tb {isSup?'on':''}" on:click={() => cmd('sup')} title="Superscript"> <i class="bi bi-superscript"></i></button>
+    </div>
+  </div>
+{/if}
+
 <style>
   .editor-toolbar {
     display: flex;
@@ -424,7 +461,6 @@
       gap: 0;
       column-gap: 1px;
     }
-    .tb-mobile-hide { display: none !important; }
     .sep { margin: 0 2px; }
   }
 
@@ -539,6 +575,7 @@
   }
 
   .p-swatch-row { display: flex; gap: 5px; padding: 0 8px 6px; }
+  .p-btn-row { display: flex; gap: 2px; padding: 0 4px 4px; }
   .p-swatch {
     width: 20px; height: 20px; border-radius: 50%;
     border: 1px solid rgba(0,0,0,0.12); cursor: pointer;

@@ -5,7 +5,6 @@
   import NoteTabBar from '../components/NoteTabBar.svelte';
   import RichTextEditor from '../components/RichTextEditor.svelte';
   import EditorToolbar from '../components/EditorToolbar.svelte';
-  import VoiceRecorder from '../components/VoiceRecorder.svelte';
   import AIAssistantPanel from '../components/AIAssistantPanel.svelte';
   import VersionHistoryPanel from '../components/VersionHistoryPanel.svelte';
   import ShareModal from '../components/ShareModal.svelte';
@@ -1047,22 +1046,20 @@
         </div>
       </div>
 
-      <!-- ── Toolbar: outside scroll container so it's always visible ── -->
-      <div class="toolbar-row">
-        <EditorToolbar
-          editor={editorInstance}
-          {savingDoc}
-          lineHeight={$settings.editor_line_height}
-          fontSize={$settings.editor_font_size}
-          on:toggleAI={() => { showAIPanel = !showAIPanel; showVersionPanel = false; }}
-          on:lineHeightChange={(e) => { settings.update(s => ({ ...s, editor_line_height: e.detail })); }}
-          on:fontSizeChange={(e) => { settings.update(s => ({ ...s, editor_font_size: e.detail })); }}
-          on:transcribed={handleTranscribed}
-        />
-        <div class="toolbar-voice">
-          <VoiceRecorder on:recordingStart={handleRecordingStart} on:transcribed={handleTranscribed} />
-        </div>
-      </div>
+      <!-- ── Toolbar: outside scroll container so it's always visible ──
+           VoiceRecorder lives inside EditorToolbar now so it wraps as part
+           of the same flow instead of floating next to it. -->
+      <EditorToolbar
+        editor={editorInstance}
+        {savingDoc}
+        lineHeight={$settings.editor_line_height}
+        fontSize={$settings.editor_font_size}
+        on:toggleAI={() => { showAIPanel = !showAIPanel; showVersionPanel = false; }}
+        on:lineHeightChange={(e) => { settings.update(s => ({ ...s, editor_line_height: e.detail })); }}
+        on:fontSizeChange={(e) => { settings.update(s => ({ ...s, editor_font_size: e.detail })); }}
+        on:recordingStart={handleRecordingStart}
+        on:transcribed={handleTranscribed}
+      />
 
       <!-- Editor layout -->
       <div class="editor-layout">
@@ -1253,27 +1250,6 @@
     border-bottom: 1px solid var(--border-color);
     background: var(--bg-primary);
     flex-shrink: 0;
-  }
-
-  .toolbar-row {
-    display: flex;
-    align-items: flex-start;
-    border-bottom: 1px solid var(--border-color);
-    flex-shrink: 0;
-    background: var(--bg-primary);
-  }
-  .toolbar-row :global(.editor-toolbar) {
-    flex: 1;
-    min-width: 0;
-    border-bottom: none !important;
-  }
-  .toolbar-voice {
-    padding: 0 8px;
-    border-left: 1px solid var(--border-color);
-    flex-shrink: 0;
-    min-height: 48px;
-    display: flex;
-    align-items: center;
   }
 
   .editor-breadcrumb {
