@@ -22,6 +22,13 @@
   let shouldChunk = false;
   let systemAudioWarning = '';
 
+  // A chunk (or the final stop) that failed to transcribe even after the
+  // automatic retry below. Kept around so "Retry" actually resends the same
+  // audio instead of just clearing the error and losing it.
+  let lastFailedBlob: Blob | null = null;
+  let lastFailedWasFinal = false;
+  let retryingChunk = false;
+
   function isMac() {
     return typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent);
   }
@@ -53,6 +60,22 @@
     return `${m}:${String(s % 60).padStart(2, '0')}`;
   }
 
+  // One automatic retry (short delay) on top of whatever aiApi.transcribe
+  // does, before we give up and surface an error to the user. Network blips
+  // or a slow/briefly-overloaded provider are common enough during a long
+  // recording that this alone avoids losing a chunk in a lot of cases.
+  async function transcribeWithRetry(blob: Blob, attempt = 1): Promise<any> {
+    try {
+      return await aiApi.transcribe(blob);
+    } catch (err) {
+      if (attempt < 2) {
+        await new Promise(r => setTimeout(r, 2000));
+        return transcribeWithRetry(blob, attempt + 1);
+      }
+      throw err;
+    }
+  }
+
   function setupMediaRecorder() {
     if (!mediaRecorder) return;
     mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
@@ -63,8 +86,22 @@
         const blob = new Blob(chunks, { type: 'audio/webm' });
         chunks = [];
 
+        // Restart recording immediately, before transcribing this chunk, so
+        // there is no gap in captured audio while we wait on the network
+        // (and possibly retry) - the whole point of chunking is that
+        // capture and transcription don't block each other.
+        if (state === 'recording' && stream) {
+          const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+            ? 'audio/webm;codecs=opus' : 'audio/webm';
+          mediaRecorder = new MediaRecorder(stream, { mimeType });
+          setupMediaRecorder();
+          mediaRecorder.start(250);
+        }
+
         try {
-          const result = await aiApi.transcribe(blob);
+          const result = await transcribeWithRetry(blob);
+          errorMsg = '';
+          lastFailedBlob = null;
           dispatch('transcribed', {
             text: result.formatted || result.text,
             plain: result.text,
@@ -74,16 +111,9 @@
             interim: false
           });
         } catch (err: any) {
-          errorMsg = err.message || 'Chunk transcription failed. Resuming...';
-        }
-
-        // Restart recording if still in recording state
-        if (state === 'recording' && stream) {
-          const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-            ? 'audio/webm;codecs=opus' : 'audio/webm';
-          mediaRecorder = new MediaRecorder(stream, { mimeType });
-          setupMediaRecorder();
-          mediaRecorder.start(250);
+          errorMsg = err.message || 'Chunk transcription failed after retrying.';
+          lastFailedBlob = blob;
+          lastFailedWasFinal = false;
         }
       }
       // Handle final recording (user clicked stop)
@@ -146,6 +176,8 @@
   async function startRecording() {
     errorMsg = '';
     systemAudioWarning = '';
+    lastFailedBlob = null;
+    lastFailedWasFinal = false;
     try {
       const recordStream = await getRecordingStream();
       stream = recordStream;
@@ -209,6 +241,8 @@
     mediaRecorder?.stop();
     stopAllTracks();
     chunks = [];
+    lastFailedBlob = null;
+    lastFailedWasFinal = false;
     state = 'idle';
     systemAudioWarning = '';
     document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -218,7 +252,7 @@
     if (chunks.length === 0) { state = 'idle'; return; }
     const blob = new Blob(chunks, { type: 'audio/webm' });
     try {
-      const result = await aiApi.transcribe(blob);
+      const result = await transcribeWithRetry(blob);
       dispatch('transcribed', {
         text: result.formatted || result.text,
         plain: result.text,
@@ -227,10 +261,51 @@
         language: result.language,
         interim: false
       });
+      lastFailedBlob = null;
       state = 'idle';
     } catch (err: any) {
       errorMsg = err.message || 'Transcription failed. Please try again.';
+      lastFailedBlob = blob;
+      lastFailedWasFinal = true;
       state = 'error';
+    }
+  }
+
+  // Actually resends the failed blob, instead of just clearing the error.
+  // For a failed mid-recording chunk, recording keeps running the whole
+  // time (state stays 'recording') - only the final-stop case moves through
+  // 'processing'/'error' like a fresh transcription attempt.
+  async function retryFailedTranscription() {
+    if (!lastFailedBlob) { state = 'idle'; errorMsg = ''; return; }
+    const blob = lastFailedBlob;
+    const wasFinal = lastFailedWasFinal;
+
+    if (wasFinal) {
+      state = 'processing';
+      errorMsg = '';
+    } else {
+      retryingChunk = true;
+    }
+
+    try {
+      const result = await transcribeWithRetry(blob);
+      dispatch('transcribed', {
+        text: result.formatted || result.text,
+        plain: result.text,
+        diarized: result.diarized,
+        duration: result.duration,
+        language: result.language,
+        interim: false
+      });
+      lastFailedBlob = null;
+      errorMsg = '';
+      if (wasFinal) state = 'idle';
+    } catch (err: any) {
+      errorMsg = err.message || 'Transcription failed. Please try again.';
+      if (wasFinal) state = 'error';
+      // otherwise stay in 'recording' - lastFailedBlob is kept so the user can retry again
+    } finally {
+      if (!wasFinal) retryingChunk = false;
     }
   }
 </script>
@@ -271,6 +346,16 @@
     </button>
   </div>
 
+  {#if lastFailedBlob && !lastFailedWasFinal}
+    <div class="vr-chunk-warn">
+      <i class="bi bi-exclamation-triangle"></i>
+      <span>{errorMsg || 'A segment failed to transcribe.'}</span>
+      <button class="vr-retry-btn" on:click={retryFailedTranscription} disabled={retryingChunk}>
+        {#if retryingChunk}<span class="vr-spinner-sm"></span>{:else}<i class="bi bi-arrow-counterclockwise"></i>{/if} Retry
+      </button>
+    </div>
+  {/if}
+
 <!-- ── Paused ── -->
 {:else if state === 'paused'}
   <div class="vr-recording vr-paused">
@@ -301,9 +386,15 @@
   <div class="vr-error">
     <i class="bi bi-exclamation-triangle-fill vr-error-icon"></i>
     <span class="vr-error-msg">{errorMsg}</span>
-    <button class="vr-retry-btn" on:click={() => { state = 'idle'; errorMsg = ''; }}>
-      <i class="bi bi-arrow-counterclockwise"></i> Retry
-    </button>
+    {#if lastFailedBlob}
+      <button class="vr-retry-btn" on:click={retryFailedTranscription}>
+        <i class="bi bi-arrow-counterclockwise"></i> Retry
+      </button>
+    {:else}
+      <button class="vr-retry-btn" on:click={() => { state = 'idle'; errorMsg = ''; }}>
+        <i class="bi bi-arrow-counterclockwise"></i> Dismiss
+      </button>
+    {/if}
   </div>
 {/if}
 
@@ -423,6 +514,16 @@
   }
   @keyframes vr-spin { to { transform: rotate(360deg); } }
 
+  .vr-spinner-sm {
+    width: 10px; height: 10px;
+    display: inline-block;
+    border: 2px solid rgba(255,255,255,0.4);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: vr-spin 0.7s linear infinite;
+    flex-shrink: 0;
+  }
+
   /* ── Error ── */
   .vr-error {
     display: flex;
@@ -451,6 +552,26 @@
     transition: all 0.15s;
   }
   .vr-retry-btn:hover { background: rgba(239,68,68,0.1); }
+  .vr-retry-btn:disabled { opacity: 0.6; cursor: default; }
+
+  /* ── Mid-recording chunk failure banner ── */
+  .vr-chunk-warn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    margin-top: 4px;
+    background: rgba(239,68,68,0.06);
+    border: 1px solid rgba(239,68,68,0.25);
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    color: var(--text-secondary);
+    max-width: 320px;
+  }
+  .vr-chunk-warn i:first-child { color: #ef4444; flex-shrink: 0; }
+  .vr-chunk-warn span { flex: 1; line-height: 1.4; }
+  .vr-chunk-warn .vr-retry-btn { background: #ef4444; color: #fff; }
+  .vr-chunk-warn .vr-retry-btn:hover { background: #dc2626; }
 
   @keyframes vr-fadein { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
 
@@ -528,5 +649,7 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+
+    .vr-chunk-warn { max-width: 220px; }
   }
 </style>
