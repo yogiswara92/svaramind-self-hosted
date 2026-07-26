@@ -19,6 +19,7 @@
   let displayStream: MediaStream | null = null;
   let micStream: MediaStream | null = null;
   let audioCtx: AudioContext | null = null;
+  let keepAliveOsc: OscillatorNode | null = null;
   let shouldChunk = false;
   let systemAudioWarning = '';
 
@@ -51,8 +52,9 @@
     stream?.getTracks().forEach(t => t.stop());
     displayStream?.getTracks().forEach(t => t.stop());
     micStream?.getTracks().forEach(t => t.stop());
+    try { keepAliveOsc?.stop(); } catch {}
     audioCtx?.close().catch(() => {});
-    stream = null; displayStream = null; micStream = null; audioCtx = null;
+    stream = null; displayStream = null; micStream = null; audioCtx = null; keepAliveOsc = null;
   }
 
   function formatTime(s: number) {
@@ -156,6 +158,21 @@
     const ctx = new AudioContext();
     audioCtx = ctx;
     const dest = ctx.createMediaStreamDestination();
+
+    // Chrome can auto-suspend an AudioContext whose output never reaches
+    // actual speakers - exactly this case, since `dest` only feeds
+    // MediaRecorder, nothing plays out loud - once the tab is backgrounded,
+    // as a power-saving intervention. That would silently gap the recording
+    // for as long as the tab stays hidden. Route a near-silent (not fully
+    // silent - Chrome's "is this audible" check looks at actual output
+    // level, so exact 0 gain would still be classified inaudible) oscillator
+    // through ctx.destination so the context is considered "producing
+    // sound" and never gets suspended in the background at all.
+    const keepAliveGain = ctx.createGain();
+    keepAliveGain.gain.value = 0.0001;
+    keepAliveOsc = ctx.createOscillator();
+    keepAliveOsc.connect(keepAliveGain).connect(ctx.destination);
+    keepAliveOsc.start();
 
     if (hasSystemAudio) {
       ctx.createMediaStreamSource(display).connect(dest);
