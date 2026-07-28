@@ -363,6 +363,10 @@
     </button>
   </div>
 
+  {#if systemAudioWarning}
+    <div class="vr-sys-warn"><i class="bi bi-exclamation-triangle"></i> {systemAudioWarning} Recording from the microphone instead - stop and restart once it's set up if you need the actual system audio.</div>
+  {/if}
+
   {#if lastFailedBlob && !lastFailedWasFinal}
     <div class="vr-chunk-warn">
       <i class="bi bi-exclamation-triangle"></i>
@@ -391,6 +395,10 @@
       <i class="bi bi-x"></i>
     </button>
   </div>
+
+  {#if systemAudioWarning}
+    <div class="vr-sys-warn"><i class="bi bi-exclamation-triangle"></i> {systemAudioWarning} Recording from the microphone instead - stop and restart once it's set up if you need the actual system audio.</div>
+  {/if}
 
 <!-- ── Processing ── -->
 {:else if state === 'processing'}
