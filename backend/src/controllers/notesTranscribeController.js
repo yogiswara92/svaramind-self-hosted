@@ -52,40 +52,51 @@ async function withRetry(fn, { retries = 2, delayMs = 1500 } = {}) {
 // Heuristic: does this transcript look like a degenerate repetition loop
 // (e.g. "oke oke oke oke..." for an entire chunk)? This is a well-known
 // ASR/audio-LLM failure mode on silence or very low-signal audio - the model
-// has nothing confident to say and gets stuck repeating a token or short
-// phrase. If most of the text is one repeated n-gram, it's worth retrying at
-// a higher temperature rather than keeping the result as-is.
+// has nothing confident to say and gets stuck repeating a token OR a longer
+// phrase/clause. A short filler word needs to repeat more times before it's
+// clearly not just natural speech (e.g. "follow up follow up"), but a long
+// phrase repeating even twice verbatim essentially never happens naturally -
+// so the required repeat count shrinks as the repeated unit gets longer.
+function minRepeatsForGram(n) {
+  if (n <= 4) return 4;
+  if (n <= 8) return 3;
+  return 2;
+}
+
 function looksLikeRepetitionLoop(text) {
   if (!text) return false;
   const words = text.split(/\s+/).filter(Boolean);
   if (words.length < 8) return false;
-  for (let n = 1; n <= 3; n++) {
+  const maxN = Math.min(20, Math.floor(words.length / 2));
+  for (let n = 1; n <= maxN; n++) {
     const counts = new Map();
     for (let i = 0; i + n <= words.length; i++) {
       const gram = words.slice(i, i + n).join(' ').toLowerCase();
       counts.set(gram, (counts.get(gram) || 0) + 1);
     }
     const maxCount = Math.max(...counts.values());
-    if (maxCount >= 6 && (maxCount * n) / words.length > 0.5) return true;
+    if (maxCount >= minRepeatsForGram(n) && (maxCount * n) / words.length > 0.5) return true;
   }
   return false;
 }
 
 // Collapses degenerate repeated-word/phrase runs down to at most 2
-// occurrences. Works at the word level with a sliding n-gram (1-4 words) so
-// it catches loops whether or not the model added punctuation between
-// repeats - "Oke. Oke. Oke." and "oke oke oke" both get caught, unlike a
-// sentence-boundary split which misses unpunctuated repeats entirely.
+// occurrences. Works at the word level with a sliding n-gram (checked
+// smallest-first, so it locks onto the true repeating unit rather than a
+// multiple of it) so it catches loops whether or not the model added
+// punctuation between repeats, and whether the repeating unit is one filler
+// word or a whole multi-word clause cycling over and over.
 function removeRepetitions(text) {
   if (!text) return text;
   const words = text.split(/\s+/).filter(Boolean);
   if (words.length < 6) return text;
+  const maxN = Math.min(20, Math.floor(words.length / 2));
 
   const out = [];
   let i = 0;
   while (i < words.length) {
     let collapsed = false;
-    for (let n = 1; n <= 4 && i + n <= words.length; n++) {
+    for (let n = 1; n <= maxN && i + n <= words.length; n++) {
       const gram = words.slice(i, i + n).join(' ').toLowerCase();
       let repeats = 1;
       let j = i + n;
@@ -93,7 +104,7 @@ function removeRepetitions(text) {
         repeats++;
         j += n;
       }
-      if (repeats >= 4) {
+      if (repeats >= minRepeatsForGram(n)) {
         out.push(...words.slice(i, i + n * Math.min(repeats, 2)));
         i = j;
         collapsed = true;
