@@ -2,6 +2,7 @@ const { db } = require('../config/db');
 const { getRelevantChunks, getCrossNoteChunks } = require('./notesEmbeddingService');
 const { decrypt } = require('./encryptionService');
 const { getAdminDefaultLLM, toChatConfig } = require('./adminLLMService');
+const { upsertEntitiesForDocument, recordRelations, getEntityContextForQuery } = require('./notesEntityService');
 
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
 
@@ -168,6 +169,31 @@ async function extractEntities(content, userId) {
   ];
 
   const result = await callLLM(messages, userId, { temperature: 0.1, maxTokens: 800 });
+  try {
+    const jsonMatch = result.match(/\[[\s\S]*\]/);
+    return jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+  } catch {
+    return [];
+  }
+}
+
+// Phase 4 of the knowledge-graph RAG: simple subject-relation-object triples
+// between entities already extracted for this note (entityNames used as a
+// hint so the model reuses the same names rather than paraphrasing them,
+// which would break entity-matching downstream). Kept intentionally light -
+// this is not meant to capture every nuance, just the clear, stated facts.
+async function extractRelations(content, entityNames, userId) {
+  if (!entityNames || entityNames.length < 2) return [];
+  const hint = entityNames.slice(0, 30).join(', ');
+  const messages = [
+    {
+      role: 'system',
+      content: `Extract simple factual relationships stated in the text, between the entities listed below. Return ONLY a valid JSON array of objects with "subject", "relation", "object" fields (all short strings). "relation" should be a short present-tense verb phrase (e.g. "works at", "leads", "reports to", "located in"). Use the entity names exactly as given below wherever possible. Skip anything not clearly and directly stated - do not guess or infer. Entities: ${hint}. Example: [{"subject":"Jane Doe","relation":"works at","object":"Acme Corp"}]`
+    },
+    { role: 'user', content: `Extract relationships from:\n\n${content.slice(0, 3000)}` }
+  ];
+
+  const result = await callLLM(messages, userId, { temperature: 0.1, maxTokens: 600 });
   try {
     const jsonMatch = result.match(/\[[\s\S]*\]/);
     return jsonMatch ? JSON.parse(jsonMatch[0]) : [];
@@ -372,6 +398,25 @@ async function chatWithNote(content, title, question, history, userId, documentI
       if (result) {
         crossNoteContext = result.context;
         allSources = [...allSources, ...result.sources];
+      }
+    } catch {}
+  }
+
+  // 2.5. Knowledge-graph RAG: structured entity lookup, complementing the
+  // chunk-similarity search above. A question naming a specific person/
+  // project/etc doesn't always score high enough on embedding similarity to
+  // surface via getCrossNoteChunks, but a plain name match against the
+  // entity table catches it exactly. Skip notes chunk-RAG already pulled in.
+  if (workspaceId) {
+    try {
+      const entityResult = await getEntityContextForQuery(question, workspaceId, userId, documentId);
+      if (entityResult) {
+        const alreadyIncluded = new Set(allSources.map(s => s.documentId));
+        const newSources = entityResult.sources.filter(s => !alreadyIncluded.has(s.documentId));
+        if (newSources.length) {
+          crossNoteContext += (crossNoteContext ? '\n\n---\n\n' : '') + entityResult.context;
+          allSources = [...allSources, ...newSources];
+        }
       }
     } catch {}
   }
@@ -597,9 +642,28 @@ ${webContext ? `\nWeb search results:\n${webContext}` : ''}`;
           const searchQuery = fnArgs.query || question;
           console.log('[EditorChat] Tool call - search_workspace:', searchQuery, '| scope:', knowledgeScope?.mode || 'workspace');
           const searchResults = await getCrossNoteChunks(searchQuery, workspaceId, userId, documentId, 4, knowledgeScope);
-          if (searchResults) {
-            allSources = [...allSources, ...searchResults.sources];
-            toolResults.push({ tool_call_id: tc.id, result: searchResults.context });
+
+          // Knowledge-graph RAG: structured entity lookup alongside the
+          // chunk-similarity search above. Catches exact named-entity
+          // questions ("where does X work") that don't always score high
+          // enough on embedding similarity to surface otherwise.
+          let entityContext = '';
+          try {
+            const entityResult = await getEntityContextForQuery(searchQuery, workspaceId, userId, documentId);
+            if (entityResult) {
+              const already = new Set([...allSources, ...(searchResults?.sources || [])].map(s => s.documentId));
+              const newSources = entityResult.sources.filter(s => !already.has(s.documentId));
+              if (newSources.length) {
+                entityContext = entityResult.context;
+                allSources = [...allSources, ...newSources];
+              }
+            }
+          } catch {}
+
+          if (searchResults || entityContext) {
+            if (searchResults) allSources = [...allSources, ...searchResults.sources];
+            const combined = [searchResults?.context, entityContext].filter(Boolean).join('\n\n---\n\n');
+            toolResults.push({ tool_call_id: tc.id, result: combined || 'No related notes found.' });
           } else {
             toolResults.push({ tool_call_id: tc.id, result: 'No related notes found.' });
           }
@@ -1241,7 +1305,7 @@ async function processDocumentInsights(documentId, userId) {
       .onConflict('document_id')
       .merge();
 
-    const doc = await db('notes_documents').where({ id: documentId }).select('title', 'content_text').first();
+    const doc = await db('notes_documents').where({ id: documentId }).select('title', 'content_text', 'workspace_id').first();
 
     // Decrypt before passing to AI
     const title = decrypt(doc?.title || '');
@@ -1276,6 +1340,23 @@ async function processDocumentInsights(documentId, userId) {
       processing_status: 'done',
       last_processed_at: db.fn.now()
     }).onConflict('document_id').merge();
+
+    // Knowledge-graph RAG: normalize entities across notes (not just this
+    // note's own insight blob) and extract simple relation facts between
+    // them. Kept outside the Promise.all above and non-fatal to the rest of
+    // insight processing - this is additive graph-building, not something
+    // the Insights panel itself depends on to render.
+    try {
+      await upsertEntitiesForDocument(documentId, doc.workspace_id, userId, entities);
+      const entityNames = (entities || []).map(e => e?.value).filter(Boolean);
+      const relations = await extractRelations(contentText, entityNames, userId).catch(e => {
+        console.error('[Insights] relations failed:', e.message);
+        return [];
+      });
+      await recordRelations(doc.workspace_id, documentId, userId, relations);
+    } catch (e) {
+      console.error('[Insights] knowledge graph update failed:', e.message);
+    }
 
     console.log(`[Notes AI] Processed insights for document ${documentId}`);
   } catch (err) {

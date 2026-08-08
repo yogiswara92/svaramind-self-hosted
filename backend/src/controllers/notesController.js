@@ -1,6 +1,7 @@
 const { db } = require('../config/db');
 const storage = require('../services/storage');
 const { indexDocumentAsync } = require('../services/notesEmbeddingService');
+const { getEntitiesForGraph, getDocumentsForEntity } = require('../services/notesEntityService');
 const { encryptDocument, decryptDocument, decrypt } = require('../services/encryptionService');
 const { assertWorkspaceAccess, assertWorkspaceOwner, assertDocumentAccess, assertFolderAccess, handleError } = require('../services/authz');
 
@@ -739,8 +740,29 @@ async function getGraphData(req, res) {
       }
     }
 
-    res.json({ nodes, edges });
+    // Knowledge-graph RAG entities: adds entity nodes (people/orgs/projects/
+    // etc extracted from note content) and "mentions"/"relation" edges on
+    // top of the document-only graph above.
+    const entityGraph = await getEntitiesForGraph(workspaceId, docIds).catch(() => ({ nodes: [], edges: [] }));
+
+    res.json({
+      nodes: [...nodes, ...entityGraph.nodes],
+      edges: [...edges, ...entityGraph.edges]
+    });
   } catch (err) { handleError(res, err, 'getGraphData'); }
+}
+
+async function getEntityDocuments(req, res) {
+  try {
+    const userId = req.user.id;
+    const { workspaceId, entityId } = req.params;
+    await assertWorkspaceAccess(workspaceId, userId);
+
+    const result = await getDocumentsForEntity(entityId, workspaceId, userId);
+    if (!result) return res.status(404).json({ error: 'Entity not found' });
+
+    res.json(result);
+  } catch (err) { handleError(res, err, 'getEntityDocuments'); }
 }
 
 // ── Backlinks ─────────────────────────────────────────────────────────────────
@@ -852,6 +874,6 @@ module.exports = {
   getCollaborators, addCollaborator, removeCollaborator,
   getTemplates, createTemplate, updateTemplate, deleteTemplate,
   uploadAttachment,
-  getGraphData,
+  getGraphData, getEntityDocuments,
   getBacklinks, syncLinks, searchByTitle
 };

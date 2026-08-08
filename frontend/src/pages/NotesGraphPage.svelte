@@ -7,11 +7,26 @@
   import { currentWorkspace } from '../stores/notes';
   import { goToNote } from '../stores/tabs';
 
+  const ENTITY_ICONS: Record<string, string> = {
+    person: 'bi-person',
+    organization: 'bi-building',
+    date: 'bi-calendar-event',
+    project: 'bi-kanban',
+    technology: 'bi-cpu',
+    location: 'bi-geo-alt',
+    concept: 'bi-lightbulb'
+  };
+
   let nodes: any[] = [];
   let edges: any[] = [];
   let loading = false;
   let selectedNode: any = null;
   let graphRef: any;
+
+  // Entity nodes aren't documents - selecting one shows which notes mention
+  // it instead of a single "Open Note" action.
+  let entityDocs: any[] = [];
+  let loadingEntityDocs = false;
 
   async function loadGraph() {
     if (!$currentWorkspace) return;
@@ -28,8 +43,18 @@
 
   onMount(() => loadGraph());
 
-  function handleNodeSelect(e: CustomEvent) {
+  async function handleNodeSelect(e: CustomEvent) {
     selectedNode = e.detail;
+    entityDocs = [];
+    if (selectedNode.type === 'entity' && $currentWorkspace) {
+      const entityId = String(selectedNode.id).replace(/^entity:/, '');
+      loadingEntityDocs = true;
+      try {
+        const result = await graphApi.getEntityDocuments($currentWorkspace.id, entityId);
+        entityDocs = result?.documents || [];
+      } catch {}
+      loadingEntityDocs = false;
+    }
   }
 </script>
 
@@ -43,7 +68,8 @@
         {/if}
       </div>
       <div class="graph-meta">
-        <span class="meta-badge"><i class="bi bi-circle-fill" style="color:var(--accent-color)"></i> {nodes.length} notes</span>
+        <span class="meta-badge"><i class="bi bi-circle-fill" style="color:var(--accent-color)"></i> {nodes.filter(n => n.type !== 'entity').length} notes</span>
+        <span class="meta-badge"><i class="bi bi-tag-fill" style="color:#b45309"></i> {nodes.filter(n => n.type === 'entity').length} entities</span>
         <span class="meta-badge"><i class="bi bi-dash-lg"></i> {edges.length} connections</span>
         <button class="notes-btn notes-btn-ghost" on:click={loadGraph}>
           <i class="bi bi-arrow-clockwise"></i> Refresh
@@ -78,7 +104,32 @@
     </div>
 
     <!-- Selected node panel -->
-    {#if selectedNode}
+    {#if selectedNode && selectedNode.type === 'entity'}
+      <div class="node-detail-panel">
+        <div class="node-detail-header">
+          <i class="bi {ENTITY_ICONS[selectedNode.entityType] || 'bi-tag'} node-icon entity-icon"></i>
+          <div class="node-title-info">
+            <h5>{selectedNode.label}</h5>
+            <span class="node-words">{selectedNode.entityType} · mentioned in {selectedNode.mention_count || 1} note{selectedNode.mention_count === 1 ? '' : 's'}</span>
+          </div>
+          <button class="icon-btn" on:click={() => { selectedNode = null; entityDocs = []; }}><i class="bi bi-x"></i></button>
+        </div>
+        {#if loadingEntityDocs}
+          <div class="entity-docs-loading"><span class="spinner-sm" style="width:16px;height:16px;border-width:2px"></span></div>
+        {:else if entityDocs.length === 0}
+          <p class="entity-docs-empty">No notes found for this entity.</p>
+        {:else}
+          <div class="entity-docs-list">
+            {#each entityDocs as doc}
+              <button class="entity-doc-item" on:click={() => goToNote(doc.id)}>
+                <i class="bi {doc.icon || 'bi-file-text'}"></i>
+                <span>{doc.title || 'Untitled'}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {:else if selectedNode}
       <div class="node-detail-panel">
         <div class="node-detail-header">
           <i class="bi {selectedNode.icon || 'bi-file-text'} node-icon"></i>
@@ -170,6 +221,20 @@
   .node-tag { font-size: 11px; color: var(--accent-color); background: var(--bg-active); padding: 2px 8px; border-radius: 10px; }
 
   .node-connections { font-size: 12px; color: var(--text-muted); }
+
+  .entity-icon { color: #b45309; }
+  .entity-docs-loading { display: flex; justify-content: center; padding: 12px 0; }
+  .entity-docs-empty { font-size: 12px; color: var(--text-muted); margin: 0; }
+  .entity-docs-list { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
+  .entity-doc-item {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; padding: 7px 8px; border: none; border-radius: var(--radius-sm);
+    background: none; cursor: pointer; font-size: 13px; text-align: left;
+    color: var(--text-primary); transition: background 0.1s;
+  }
+  .entity-doc-item:hover { background: var(--bg-hover); }
+  .entity-doc-item i { color: var(--text-muted); flex-shrink: 0; }
+  .entity-doc-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .icon-btn { background: none; border: none; cursor: pointer; padding: 4px; border-radius: 4px; color: var(--text-muted); display: flex; align-items: center; margin-left: auto; }
 

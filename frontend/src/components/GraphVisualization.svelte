@@ -33,13 +33,30 @@
     node: '#132578',
     nodeHover: '#1e3a9e',
     nodeSelected: '#8b5cf6',
+    entityNode: '#b45309',
+    entityNodeHover: '#92400e',
     edgeWikilink: '#132578',
     edgeRelated: '#f59e0b',
     edgeFolder: '#94a3b8',
+    edgeMentions: '#d97706',
+    edgeRelation: '#059669',
     edge: '#94a3b8',
     text: '#1e1b4b',
     bg: '#f8fafc'
   };
+
+  const ENTITY_ICONS: Record<string, string> = {
+    person: 'bi-person',
+    organization: 'bi-building',
+    date: 'bi-calendar-event',
+    project: 'bi-kanban',
+    technology: 'bi-cpu',
+    location: 'bi-geo-alt',
+    concept: 'bi-lightbulb'
+  };
+  function entityIcon(entityType: string) {
+    return ENTITY_ICONS[entityType] || 'bi-tag';
+  }
 
   function getSavedPositions(): Record<string, {x: number, y: number}> {
     try { return JSON.parse(localStorage.getItem('notes_graph_pos') || '{}'); } catch { return {}; }
@@ -59,7 +76,9 @@
       x: saved[n.id]?.x ?? (300 + Math.cos(i * 2 * Math.PI / nodes.length) * 200),
       y: saved[n.id]?.y ?? (300 + Math.sin(i * 2 * Math.PI / nodes.length) * 200),
       vx: 0, vy: 0,
-      radius: NODE_RADIUS + Math.min(10, (n.word_count || 0) / 100)
+      radius: n.type === 'entity'
+        ? 14 + Math.min(8, (n.mention_count || 1) * 1.5)
+        : NODE_RADIUS + Math.min(10, (n.word_count || 0) / 100)
     }));
     // Restore pan/zoom if saved
     try {
@@ -135,8 +154,10 @@
 
       const color = edge.type === 'wikilink' ? COLORS.edgeWikilink
         : edge.type === 'related' ? COLORS.edgeRelated
+        : edge.type === 'mentions' ? COLORS.edgeMentions
+        : edge.type === 'relation' ? COLORS.edgeRelation
         : COLORS.edgeFolder;
-      const width = edge.type === 'wikilink' ? 2 : edge.type === 'related' ? 1.5 : 1;
+      const width = edge.type === 'wikilink' ? 2 : edge.type === 'related' || edge.type === 'relation' ? 1.5 : edge.type === 'mentions' ? 1 : 1;
 
       // Check if edge is connected to hovered node
       const isConnectedToHovered = hoveredNode && (
@@ -145,22 +166,23 @@
 
       // Set opacity based on hover state
       if (hoveredNode) {
-        // Folder edges stay subtle even when highlighted, others get full opacity
-        ctx.globalAlpha = isConnectedToHovered ? (edge.type === 'folder' ? 0.45 : 1) : 0.15;
+        // Folder/mentions edges stay subtle even when highlighted, others get full opacity
+        ctx.globalAlpha = isConnectedToHovered ? (edge.type === 'folder' || edge.type === 'mentions' ? 0.5 : 1) : 0.15;
       } else {
-        ctx.globalAlpha = edge.type === 'folder' ? 0.3 : 0.75;
+        ctx.globalAlpha = edge.type === 'folder' ? 0.3 : edge.type === 'mentions' ? 0.4 : 0.75;
       }
 
       ctx.strokeStyle = isConnectedToHovered && hoveredNode ? '#8b5cf6' : color;
       ctx.lineWidth = isConnectedToHovered && hoveredNode ? (edge.type === 'folder' ? width : width + 1) : width;
-      ctx.setLineDash(edge.type === 'related' ? [5, 3] : []);
+      ctx.setLineDash(edge.type === 'related' ? [5, 3] : edge.type === 'mentions' ? [2, 3] : []);
       ctx.beginPath();
       ctx.moveTo(sx, sy);
       ctx.lineTo(ex, ey);
       ctx.stroke();
 
-      // Arrow head for wikilink and related
-      if (edge.type !== 'folder') {
+      // Arrow head for everything except folder/mentions (mentions is a soft
+      // "appears in" link, not a directional claim worth an arrowhead)
+      if (edge.type !== 'folder' && edge.type !== 'mentions') {
         ctx.setLineDash([]);
         ctx.fillStyle = isConnectedToHovered && hoveredNode ? '#8b5cf6' : color;
         ctx.beginPath();
@@ -169,6 +191,23 @@
         ctx.lineTo(ex - 10 * Math.cos(angle + 0.4), ey - 10 * Math.sin(angle + 0.4));
         ctx.closePath();
         ctx.fill();
+      }
+
+      // Relation label at the midpoint (e.g. "works at") - only when
+      // hovering/selecting one of its endpoints, to avoid cluttering the
+      // whole graph with text at rest.
+      if (edge.type === 'relation' && edge.label && isConnectedToHovered) {
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+        const mx = (sx + tx) / 2, my = (sy + ty) / 2;
+        ctx.font = '10px Inter, sans-serif';
+        const textWidth = ctx.measureText(edge.label).width;
+        ctx.fillStyle = 'rgba(248,250,252,0.9)';
+        ctx.fillRect(mx - textWidth / 2 - 3, my - 8, textWidth + 6, 14);
+        ctx.fillStyle = COLORS.edgeRelation;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(edge.label, mx, my - 1);
       }
 
       ctx.setLineDash([]);
@@ -180,19 +219,26 @@
       const r = node.radius || NODE_RADIUS;
       const isHovered = hoveredNode?.id === node.id;
       const isSelected = selectedNode?.id === node.id;
+      const isEntity = node.type === 'entity';
 
       // Shadow
       if (isHovered || isSelected) {
-        ctx.shadowColor = COLORS.node;
+        ctx.shadowColor = isEntity ? COLORS.entityNode : COLORS.node;
         ctx.shadowBlur = 15;
       }
 
-      // Node circle
+      // Node circle - entities get a warm (amber) gradient, documents a
+      // cool (blue) one, so the two node kinds read apart at a glance.
       ctx.beginPath();
       ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
       const gradient = ctx.createRadialGradient(node.x - r/4, node.y - r/4, 1, node.x, node.y, r);
-      gradient.addColorStop(0, isSelected ? '#1e3a9e' : isHovered ? '#8b5cf6' : '#3a5fd4');
-      gradient.addColorStop(1, isSelected ? '#132578' : isHovered ? '#132578' : '#0e1c5e');
+      if (isEntity) {
+        gradient.addColorStop(0, isSelected ? '#1e3a9e' : isHovered ? '#8b5cf6' : '#d97706');
+        gradient.addColorStop(1, isSelected ? '#132578' : isHovered ? '#132578' : '#92400e');
+      } else {
+        gradient.addColorStop(0, isSelected ? '#1e3a9e' : isHovered ? '#8b5cf6' : '#3a5fd4');
+        gradient.addColorStop(1, isSelected ? '#132578' : isHovered ? '#132578' : '#0e1c5e');
+      }
       ctx.fillStyle = gradient;
       ctx.fill();
 
@@ -279,7 +325,10 @@
 
   function handleMouseUp(e: MouseEvent) {
     if (dragNode && !isDragging) {
-      if (selectedNode?.id === dragNode.id) {
+      // Entity nodes aren't documents - clicking one again shouldn't try to
+      // open it as a note (their id isn't even a real document id). The
+      // parent page shows a "notes mentioning this entity" list instead.
+      if (selectedNode?.id === dragNode.id && dragNode.type !== 'entity') {
         goToNote(dragNode.id);
       } else {
         selectedNode = dragNode;
@@ -356,7 +405,7 @@
 
   function handleTouchEnd(e: TouchEvent) {
     if (dragNode && !isDragging) {
-      if (selectedNode?.id === dragNode.id) goToNote(dragNode.id);
+      if (selectedNode?.id === dragNode.id && dragNode.type !== 'entity') goToNote(dragNode.id);
       else { selectedNode = dragNode; dispatch('nodeSelect', dragNode); }
     }
     dragNode = null;
@@ -459,8 +508,12 @@
   <!-- Node tooltip -->
   {#if hoveredNode}
     <div class="graph-tooltip" style="left:{(hoveredNode.x * transform.scale + transform.x + 40)}px;top:{(hoveredNode.y * transform.scale + transform.y - 20)}px">
-      <div class="tooltip-title"><i class="bi {hoveredNode.icon || 'bi-file-text'}"></i> {hoveredNode.label}</div>
-      {#if hoveredNode.word_count}<div class="tooltip-meta">{hoveredNode.word_count} words</div>{/if}
+      <div class="tooltip-title"><i class="bi {hoveredNode.type === 'entity' ? entityIcon(hoveredNode.entityType) : (hoveredNode.icon || 'bi-file-text')}"></i> {hoveredNode.label}</div>
+      {#if hoveredNode.type === 'entity'}
+        <div class="tooltip-meta">{hoveredNode.entityType} · mentioned in {hoveredNode.mention_count || 1} note{hoveredNode.mention_count === 1 ? '' : 's'}</div>
+      {:else if hoveredNode.word_count}
+        <div class="tooltip-meta">{hoveredNode.word_count} words</div>
+      {/if}
       {#if hoveredNode.tags?.length > 0}
         <div class="tooltip-tags">
           {#each hoveredNode.tags.slice(0, 3) as tag}
@@ -468,7 +521,9 @@
           {/each}
         </div>
       {/if}
-      <div class="tooltip-hint">Click to select · Double-click to open</div>
+      <div class="tooltip-hint">
+        {hoveredNode.type === 'entity' ? 'Click to see notes mentioning this' : 'Click to select · Double-click to open'}
+      </div>
     </div>
   {/if}
 
@@ -477,7 +532,9 @@
     <div class="legend-item"><span class="legend-dot" style="background:#132578"></span> Wikilink [[...]]</div>
     <div class="legend-item"><span class="legend-dot legend-dashed" style="background:#f59e0b"></span> AI Related</div>
     <div class="legend-item"><span class="legend-dot" style="background:#94a3b8;opacity:0.5"></span> Same folder</div>
-    <div class="legend-item"><i class="bi bi-info-circle"></i> {nodes.length} notes, {edges.length} connections</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#d97706;opacity:0.6"></span> Mentions entity</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#059669"></span> Fact</div>
+    <div class="legend-item"><i class="bi bi-info-circle"></i> {nodes.length} nodes, {edges.length} connections</div>
   </div>
 </div>
 

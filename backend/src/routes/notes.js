@@ -14,7 +14,7 @@ const {
   getCollaborators, addCollaborator, removeCollaborator,
   getTemplates, createTemplate, updateTemplate, deleteTemplate,
   uploadAttachment,
-  getGraphData,
+  getGraphData, getEntityDocuments,
   getBacklinks, syncLinks, searchByTitle
 } = require('../controllers/notesController');
 
@@ -99,6 +99,7 @@ router.post('/documents/:id/attachments', uploadAttachment);
 
 // ── Graph
 router.get('/workspaces/:workspaceId/graph', getGraphData);
+router.get('/workspaces/:workspaceId/entities/:entityId/documents', getEntityDocuments);
 
 // ── Backlinks & wikilinks
 router.get('/documents/:id/backlinks', getBacklinks);

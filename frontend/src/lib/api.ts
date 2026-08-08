@@ -119,7 +119,9 @@ export const templateApi = {
 
 // ── Graph ────────────────────────────────────────────────────────────────
 export const graphApi = {
-  get: (workspaceId: string) => apiCall(`/notes/workspaces/${workspaceId}/graph`)
+  get: (workspaceId: string) => apiCall(`/notes/workspaces/${workspaceId}/graph`),
+  getEntityDocuments: (workspaceId: string, entityId: string) =>
+    apiCall(`/notes/workspaces/${workspaceId}/entities/${entityId}/documents`)
 };
 
 // ── AI ────────────────────────────────────────────────────────────────
